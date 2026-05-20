@@ -1,25 +1,30 @@
 """
 Configuración del proyecto Django: API REST para la gestión de pasarelas de pago.
 
-Generado para el Proyecto Final Intermodular - CE Desarrollo de Aplicaciones
-en Lenguaje Python (Curso 2025-2026).
+Proyecto Final Intermodular - CE Desarrollo de Aplicaciones en Lenguaje Python
+(Curso 2025-2026). Hito 3: vistas, rutas, autenticación y pasarelas.
 """
 from pathlib import Path
+
+from decouple import config
 
 # Rutas base del proyecto
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# AVISO DE SEGURIDAD: en producción, mover a variable de entorno.
-SECRET_KEY = 'django-insecure-CAMBIAR-ESTA-CLAVE-EN-PRODUCCION'
+# Seguridad: clave secreta cargada desde variables de entorno.
+SECRET_KEY = config(
+    'DJANGO_SECRET_KEY',
+    default='django-insecure-CAMBIAR-ESTA-CLAVE-EN-PRODUCCION',
+)
 
-# AVISO DE SEGURIDAD: desactivar DEBUG en producción.
-DEBUG = True
+DEBUG = config('DJANGO_DEBUG', default=True, cast=bool)
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ['*'] if DEBUG else config(
+    'DJANGO_ALLOWED_HOSTS', default='', cast=lambda v: [s.strip() for s in v.split(',') if s]
+)
 
 # Aplicaciones instaladas
 INSTALLED_APPS = [
-    # Apps por defecto de Django
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -27,14 +32,15 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
 
-    # Apps de terceros
+    # Terceros
     'rest_framework',
     'rest_framework.authtoken',
     'django_filters',
 
-    # Apps propias del proyecto
+    # Apps propias
     'providers',
     'transactions',
+    'orders',
 ]
 
 MIDDLEWARE = [
@@ -67,7 +73,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-# Base de datos: SQLite
+# Base de datos
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -75,7 +81,6 @@ DATABASES = {
     }
 }
 
-# Validación de contraseñas
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
@@ -89,13 +94,10 @@ TIME_ZONE = 'Europe/Madrid'
 USE_I18N = True
 USE_TZ = True
 
-# Archivos estáticos
 STATIC_URL = 'static/'
-
-# Tipo de clave primaria por defecto
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# Configuración de Django REST Framework
+# Django REST Framework
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.TokenAuthentication',
@@ -107,8 +109,38 @@ REST_FRAMEWORK = {
     'DEFAULT_FILTER_BACKENDS': [
         'django_filters.rest_framework.DjangoFilterBackend',
         'rest_framework.filters.OrderingFilter',
+        'rest_framework.filters.SearchFilter',
     ],
     'DEFAULT_PAGINATION_CLASS':
         'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
+    'EXCEPTION_HANDLER': 'config.exceptions.custom_exception_handler',
+}
+
+# --- Configuración de pasarelas de pago ---
+# Las claves se cargan desde variables de entorno. Si un Provider en BD
+# tiene una api_key, se prioriza esa; en caso contrario se usa la del entorno.
+STRIPE_API_KEY = config('STRIPE_API_KEY', default='')
+STRIPE_WEBHOOK_SECRET = config('STRIPE_WEBHOOK_SECRET', default='')
+
+# Configuración de logging básico (útil en defensa para mostrar trazas)
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '[{asctime}] {levelname} {name}: {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'providers.gateways': {'handlers': ['console'], 'level': 'INFO'},
+        'transactions': {'handlers': ['console'], 'level': 'INFO'},
+    },
 }
