@@ -1,14 +1,7 @@
 """
 Modelos para la app orders.
 
-El modelo :class:`Order` representa un pedido que se paga mediante
-redirección al portal de Stripe (Stripe Checkout). El flujo es:
 
-1. Se crea el pedido en BD con estado ``pending``.
-2. El backend solicita una Checkout Session a Stripe y guarda su ID.
-3. El cliente se redirige a la URL de Stripe para pagar.
-4. Stripe notifica el resultado al webhook y el estado pasa a ``paid``
-   o ``failed``.
 """
 import uuid
 from decimal import Decimal

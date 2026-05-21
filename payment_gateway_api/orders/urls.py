@@ -1,11 +1,6 @@
 """
 URLs de la app orders.
 
-Rutas expuestas (tal y como aparecen en la presentación):
-
-    POST  /orders/create          → crea pedido + Checkout Session
-    GET   /orders/{id}/status     → estado actual del pedido
-    POST  /payments/webhook       → eventos de Stripe (firma HMAC)
 """
 from django.urls import path
 

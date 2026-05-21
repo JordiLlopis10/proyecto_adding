@@ -1,6 +1,6 @@
 # Ignorar archivos y directorios específicos
 apuntes.md 
-
+apuntes.txt
 # Byte-compiled / optimized
 __pycache__/
 *.py[cod]

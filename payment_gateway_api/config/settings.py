@@ -1,8 +1,6 @@
 """
 Configuración del proyecto Django: API REST para la gestión de pasarelas de pago.
 
-Proyecto Final Intermodular - CE Desarrollo de Aplicaciones en Lenguaje Python
-(Curso 2025-2026). Hito 3: vistas, rutas, autenticación y pasarelas.
 """
 from pathlib import Path
 

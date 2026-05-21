@@ -1,12 +1,7 @@
 """
 Vistas para la app orders.
 
-Implementa los tres endpoints del modelo de redirección:
 
-- ``POST /orders/create``         → crea el pedido y devuelve la URL de Stripe.
-- ``GET  /orders/{id}/status``    → consulta el estado actual del pedido.
-
-El webhook (``POST /payments/webhook``) está en :mod:`orders.webhooks`.
 """
 import logging
 

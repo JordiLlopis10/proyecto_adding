@@ -1,8 +1,7 @@
 """
 Serializadores para la app providers.
 
-Convierten instancias de :class:`Provider` a JSON (y viceversa) y aplican
-las validaciones de negocio iniciales requeridas por el Hito 2.
+
 """
 from rest_framework import serializers
 
