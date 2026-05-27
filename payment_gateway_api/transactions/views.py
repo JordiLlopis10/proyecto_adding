@@ -64,7 +64,14 @@ class TransactionViewSet(
         """Crea una transacción a través del servicio (no por el ORM directo)."""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        tx = TransactionService.create_charge(**serializer.validated_data)
+        data = serializer.validated_data
+        tx = TransactionService.create_charge(
+            provider=data['provider'],
+            amount=data['amount'],
+            currency=data['currency'],
+            description=data.get('description', ''),
+            payment_method_id=data.get('payment_method_id', ''),
+        )
         output = TransactionSerializer(tx, context=self.get_serializer_context())
         return Response(output.data, status=status.HTTP_201_CREATED)
 

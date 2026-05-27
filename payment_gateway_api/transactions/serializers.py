@@ -88,17 +88,30 @@ class TransactionCreateSerializer(serializers.ModelSerializer):
     """
     Serializador para crear transacciones (POST /transactions/).
 
-    Solo permite enviar los campos editables. El estado, la referencia y el
-    external_id se asignan en el servicio.
+    ``payment_method_id`` es opcional. Si se proporciona (p.ej. ``pm_card_visa``
+    en modo TEST), el PaymentIntent se confirma en el mismo paso y queda en
+    ``requires_capture``, listo para capturar manualmente.
+    Si se omite, el PaymentIntent se crea sin confirmar: el frontend deberá
+    confirmarlo con Stripe.js.
     """
 
     currency = serializers.CharField(max_length=3)
+    payment_method_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default='',
+        help_text=(
+            'ID de metodo de pago Stripe (pm_...). '
+            'En TEST usa pm_card_visa. '
+            'Si se omite, el PaymentIntent se crea sin confirmar.'
+        ),
+    )
 
     class Meta:
         """Configuración del serializador."""
 
         model = Transaction
-        fields = ['provider', 'amount', 'currency', 'description']
+        fields = ['provider', 'amount', 'currency', 'description', 'payment_method_id']
 
     def validate_amount(self, value):
         """Valida que el importe sea estrictamente positivo."""
@@ -120,7 +133,7 @@ class TransactionCreateSerializer(serializers.ModelSerializer):
         """Verifica que el proveedor esté activo."""
         if not value.is_active:
             raise serializers.ValidationError(
-                f'El proveedor "{value.name}" no está activo.'
+                f'El proveedor "{value.name}" no esta activo.'
             )
         return value
 

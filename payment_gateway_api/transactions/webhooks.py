@@ -35,6 +35,19 @@ EVENT_TO_STATUS = {
 }
 
 
+def _get(obj, key, default=None):
+    """
+    Accede a un campo de un StripeObject o dict de forma segura.
+
+    Compatible con todas las versiones del SDK de Stripe: algunas exponen
+    `.get()` (herencia de dict), otras solo soportan acceso por ``[]``.
+    """
+    try:
+        return obj[key]
+    except (KeyError, TypeError):
+        return default
+
+
 @csrf_exempt
 @api_view(['POST'])
 @authentication_classes([])  # Stripe no envía nuestro token; valida por firma.
@@ -67,12 +80,18 @@ def stripe_webhook(request):
         logger.warning('Webhook con firma inválida.')
         return Response({'detail': 'Firma inválida.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    event_type = event.get('type')
+    # Usamos [] en vez de .get() porque StripeObject no siempre expone .get()
+    event_type = event['type']
     logger.info('Webhook de Stripe recibido: %s', event_type)
+
+    # Filtrado temprano: si no nos interesa el evento, 200 OK sin tocar BD.
+    if event_type not in EVENT_TO_STATUS:
+        logger.info('Evento ignorado (no mapeado): %s', event_type)
+        return Response({'detail': 'Evento ignorado.'}, status=status.HTTP_200_OK)
 
     obj = event['data']['object']
     # Para charge.refunded el id del PaymentIntent está en otro lugar.
-    external_id = obj.get('payment_intent') or obj.get('id')
+    external_id = _get(obj, 'payment_intent') or _get(obj, 'id')
 
     try:
         tx = Transaction.objects.get(external_id=external_id)
@@ -80,25 +99,28 @@ def stripe_webhook(request):
         logger.warning('Webhook para transacción desconocida: %s', external_id)
         # Devolvemos 200 para que Stripe no reintente indefinidamente.
         return Response({'detail': 'Transacción no encontrada.'}, status=status.HTTP_200_OK)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception('Error inesperado al buscar Transaction: %s', exc)
+        return Response(
+            {'detail': f'Error interno al consultar la BD: {exc}',
+             'hint': 'Asegúrate de haber ejecutado "python manage.py migrate".'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
-    new_status = EVENT_TO_STATUS.get(event_type)
-    if new_status is None:
-        logger.info('Evento ignorado (no mapeado): %s', event_type)
-        return Response({'detail': 'Evento ignorado.'}, status=status.HTTP_200_OK)
+    new_status = EVENT_TO_STATUS[event_type]
 
     if tx.can_transition_to(new_status):
-        tx.gateway_response = json.loads(json.dumps(obj, default=str))
+        tx.gateway_response = json.loads(json.dumps(dict(obj), default=str))
         tx.transition_to(new_status, save=False)
         tx.save()
         # Si el pago ha fallado registramos una incidencia automática.
         if new_status == Transaction.Status.FAILED:
+            last_error = _get(obj, 'last_payment_error') or {}
+            error_msg = _get(last_error, 'message', 'sin detalle') or 'sin detalle'
             Incident.objects.create(
                 transaction=tx,
                 incident_type=Incident.IncidentType.UNPAID,
-                description=(
-                    f'Pago fallido reportado por Stripe: '
-                    f'{obj.get("last_payment_error", {}).get("message", "sin detalle")}.'
-                ),
+                description=f'Pago fallido reportado por Stripe: {error_msg}.',
             )
     else:
         logger.info(

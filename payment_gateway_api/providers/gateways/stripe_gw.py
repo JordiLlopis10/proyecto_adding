@@ -5,6 +5,7 @@ Utiliza el SDK oficial ``stripe`` (https://github.com/stripe/stripe-python)
 para comunicarse con la API. Todos los importes se convierten a la unidad
 mínima de la moneda (céntimos para EUR/USD, etc.) antes de enviarse.
 """
+import json
 import logging
 from decimal import Decimal
 from typing import Optional
@@ -41,6 +42,25 @@ STATUS_MAP = {
 }
 
 
+def _intent_to_dict(intent) -> dict:
+    """
+    Convierte un StripeObject (PaymentIntent, Refund…) en un dict plano y
+    JSON-serializable, compatible con todas las versiones del SDK y con
+    los mocks de tests que ya devuelven dicts.
+
+    - Si ``intent`` ya es un dict (p.ej. en tests), lo devuelve tal cual.
+    - ``dict(intent)`` falla con KeyError cuando hay objetos anidados.
+    - ``intent.to_dict()`` convierte correctamente en SDK >= 5.
+    - Fallback: ``str(StripeObject)`` devuelve JSON en SDK moderno.
+    """
+    if isinstance(intent, dict):
+        return intent
+    try:
+        return intent.to_dict()
+    except AttributeError:
+        return json.loads(str(intent))
+
+
 class StripeGateway(PaymentGateway):
     """Pasarela de pago para Stripe."""
 
@@ -56,7 +76,6 @@ class StripeGateway(PaymentGateway):
             raise GatewayConfigurationError(
                 'No hay clave de API de Stripe configurada para este proveedor.'
             )
-        # Se asigna la clave por instancia para soportar múltiples cuentas Stripe.
         self._api_key = api_key
 
     # --- Utilidades internas ---
@@ -80,11 +99,17 @@ class StripeGateway(PaymentGateway):
         return Decimal(amount) / Decimal(100)
 
     def _build_result(self, intent) -> ChargeResult:
-        """Convierte un PaymentIntent de Stripe en un ``ChargeResult``."""
+        """
+        Convierte un PaymentIntent de Stripe en un ``ChargeResult``.
+
+        Convierte primero a dict plano para evitar problemas con
+        StripeObject en distintas versiones del SDK.
+        """
+        raw = _intent_to_dict(intent)
         return ChargeResult(
-            external_id=intent['id'],
-            status=STATUS_MAP.get(intent.get('status'), 'pending'),
-            raw_response=dict(intent),
+            external_id=raw['id'],
+            status=STATUS_MAP.get(raw.get('status', ''), 'pending'),
+            raw_response=raw,
         )
 
     # --- Implementación de la interfaz PaymentGateway ---
@@ -95,21 +120,57 @@ class StripeGateway(PaymentGateway):
         currency: str,
         description: str = '',
         metadata: Optional[dict] = None,
+        payment_method_id: str = '',
     ) -> ChargeResult:
-        """Crea un PaymentIntent en Stripe."""
+        """
+        Crea un PaymentIntent en Stripe.
+
+        Si se proporciona ``payment_method_id``, el PaymentIntent se crea con
+        ``capture_method='manual'`` y se confirma en el mismo paso, quedando
+        en estado ``requires_capture`` listo para capturar.
+
+        Si no se proporciona, el PaymentIntent se crea sin confirmar para que
+        el frontend lo complete con Stripe.js.
+
+        En modo TEST los IDs de método de pago disponibles son:
+        - ``pm_card_visa``          → Visa, pago aceptado
+        - ``pm_card_visa_debit``    → Visa Débito, pago aceptado
+        - ``pm_card_mastercard``    → Mastercard, pago aceptado
+        """
         try:
-            intent = stripe.PaymentIntent.create(
+            params = dict(
                 amount=self._to_minor_units(amount, currency),
                 currency=currency.lower(),
                 description=description or None,
                 metadata=metadata or {},
-                # Configuración de captura automática (similar a Charges API).
-                automatic_payment_methods={'enabled': True, 'allow_redirects': 'never'},
                 api_key=self._api_key,
             )
+
+            if payment_method_id:
+                # Flujo manual: crear + confirmar en un paso.
+                # El resultado queda en 'requires_capture'.
+                # automatic_payment_methods con allow_redirects=never evita
+                # que Stripe exija return_url cuando hay métodos como Klarna,
+                # iDEAL, Bancontact... habilitados en el Dashboard.
+                params['capture_method'] = 'manual'
+                params['payment_method'] = payment_method_id
+                params['confirm'] = True
+                params['automatic_payment_methods'] = {
+                    'enabled': True,
+                    'allow_redirects': 'never',
+                }
+            else:
+                # Sin método de pago: el frontend deberá confirmar.
+                params['automatic_payment_methods'] = {
+                    'enabled': True,
+                    'allow_redirects': 'never',
+                }
+
+            intent = stripe.PaymentIntent.create(**params)
+
         except stripe.error.AuthenticationError as exc:
             raise GatewayConfigurationError(
-                f'Clave de API de Stripe inválida: {exc}'
+                f'Clave de API de Stripe invalida: {exc}'
             ) from exc
         except stripe.error.APIConnectionError as exc:
             raise GatewayUnavailableError(
@@ -141,19 +202,22 @@ class StripeGateway(PaymentGateway):
         respuesta consistente recargamos el PaymentIntent tras la devolución.
         """
         try:
+            intent_raw = _intent_to_dict(
+                stripe.PaymentIntent.retrieve(external_id, api_key=self._api_key)
+            )
             params = {'payment_intent': external_id, 'api_key': self._api_key}
             if amount is not None:
-                # Necesitamos saber la moneda para convertir a unidades mínimas.
-                intent = stripe.PaymentIntent.retrieve(external_id, api_key=self._api_key)
-                params['amount'] = self._to_minor_units(amount, intent['currency'])
+                params['amount'] = self._to_minor_units(
+                    amount, intent_raw['currency']
+                )
             stripe.Refund.create(**params)
             intent = stripe.PaymentIntent.retrieve(external_id, api_key=self._api_key)
         except stripe.error.StripeError as exc:
             raise GatewayError(f'Error al solicitar la devolución: {exc}') from exc
 
         result = self._build_result(intent)
-        # Una vez creada la Refund, marcamos el estado como ``refunded``
-        # aunque el PaymentIntent siga apareciendo como ``succeeded``.
+        # Stripe mantiene el PaymentIntent como 'succeeded' tras el refund;
+        # lo marcamos manualmente como 'refunded'.
         result.status = 'refunded'
         return result
 

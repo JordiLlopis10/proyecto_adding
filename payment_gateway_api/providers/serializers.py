@@ -34,7 +34,9 @@ class ProviderSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
         extra_kwargs = {
             # La clave de API nunca se devuelve en las respuestas.
-            'api_key': {'write_only': True},
+            # Se permite vacía: en ese caso el sistema cae a settings.STRIPE_API_KEY
+            # (variable de entorno), útil para no duplicar credenciales en BD.
+            'api_key': {'write_only': True, 'required': False, 'allow_blank': True},
         }
 
     def validate_name(self, value):
@@ -74,19 +76,25 @@ class ProviderSerializer(serializers.ModelSerializer):
 
     def validate_api_key(self, value):
         """
-        Valida que la clave de API no esté vacía y tenga longitud mínima.
+        Valida la clave de API.
+
+        Se permite cadena vacía: en ese caso el sistema usará la clave
+        configurada en ``settings.STRIPE_API_KEY`` (variable de entorno).
+        Si se proporciona, debe tener al menos 8 caracteres.
 
         Args:
             value: Clave de API.
 
         Returns:
-            La clave de API validada.
+            La clave de API validada (o cadena vacía).
 
         Raises:
             serializers.ValidationError: Si la clave es demasiado corta.
         """
-        if len(value.strip()) < 8:
+        cleaned = value.strip()
+        if cleaned and len(cleaned) < 8:
             raise serializers.ValidationError(
-                'La clave de API debe tener al menos 8 caracteres.'
+                'La clave de API debe tener al menos 8 caracteres '
+                '(o dejarse vacía para usar la del entorno).'
             )
-        return value.strip()
+        return cleaned

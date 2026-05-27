@@ -31,6 +31,19 @@ EVENT_STATUS_MAP = {
 }
 
 
+def _get(obj, key, default=None):
+    """
+    Accede a un campo de un StripeObject o dict de forma segura.
+
+    Compatible con todas las versiones del SDK de Stripe: algunas exponen
+    `.get()` (herencia de dict), otras solo soportan acceso por ``[]``.
+    """
+    try:
+        return obj[key]
+    except (KeyError, TypeError):
+        return default
+
+
 @csrf_exempt
 @api_view(['POST'])
 @authentication_classes([])   # Stripe no envía token; autentica por firma.
@@ -74,34 +87,45 @@ def payments_webhook(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    event_type = event.get('type')
+    # Usamos [] en vez de .get() porque StripeObject no siempre expone .get()
+    event_type = event['type']
+
+    # --- Filtrar eventos antes de tocar BD ---
+    # Solo procesamos eventos de Checkout Sessions; el resto (charge.*,
+    # payment_intent.*, product.*, price.*...) los ignoramos con 200 OK.
+    if event_type not in EVENT_STATUS_MAP:
+        logger.info('Evento ignorado (no mapeado): %s', event_type)
+        return Response({'detail': 'Evento ignorado.'}, status=status.HTTP_200_OK)
+
     session = event['data']['object']
-    logger.info('Webhook recibido: %s (session=%s)', event_type, session.get('id'))
+    session_id = _get(session, 'id', '')
+    logger.info('Webhook relevante: %s (session=%s)', event_type, session_id)
 
     # --- Localizar el pedido ---
-    # Buscamos por stripe_session_id, que guardamos al crear la Checkout Session.
-    session_id = session.get('id')
     try:
         order = Order.objects.get(stripe_session_id=session_id)
     except Order.DoesNotExist:
         logger.warning('Webhook: Order no encontrada para session %s', session_id)
         # 200 OK para que Stripe no reintente.
         return Response({'detail': 'Pedido no encontrado.'}, status=status.HTTP_200_OK)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception('Error inesperado al buscar Order: %s', exc)
+        return Response(
+            {'detail': f'Error interno al consultar la BD: {exc}',
+             'hint': 'Asegúrate de haber ejecutado "python manage.py migrate".'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
-    # --- Actualizar estado ---
-    new_status = EVENT_STATUS_MAP.get(event_type)
-    if new_status is None:
-        logger.info('Evento ignorado (no mapeado): %s', event_type)
-        return Response({'detail': 'Evento ignorado.'}, status=status.HTTP_200_OK)
-
+    # --- Idempotencia ---
     if order.status == Order.Status.PAID:
-        # Ya estaba pagado (webhook duplicado). Devolvemos 200 sin hacer nada.
         logger.info('Order %s ya estaba pagada. Webhook ignorado.', order.reference)
         return Response({'detail': 'Ya procesado.'}, status=status.HTTP_200_OK)
 
+    new_status = EVENT_STATUS_MAP[event_type]
+
     # En checkout.session.completed, Stripe incluye el payment_intent.
     if event_type == 'checkout.session.completed':
-        order.stripe_payment_intent = session.get('payment_intent', '')
+        order.stripe_payment_intent = _get(session, 'payment_intent', '') or ''
 
     order.status = new_status
     order.save(update_fields=['status', 'stripe_payment_intent', 'updated_at'])

@@ -39,23 +39,18 @@ class TransactionService:
         currency: str,
         description: str = '',
         metadata: Optional[dict] = None,
+        payment_method_id: str = '',
     ) -> Transaction:
         """
         Crea una transacción en BD y solicita el cargo en la pasarela.
 
+        Si ``payment_method_id`` se proporciona, el PaymentIntent se confirma
+        en el mismo paso y queda en ``requires_capture`` (listo para capturar).
+        En modo TEST usa ``pm_card_visa``.
+
         Si la pasarela responde con un error, la transacción se persiste con
         estado ``failed`` y se registra una incidencia automática del tipo
         ``connection_error``, para conservar la trazabilidad del intento.
-
-        Args:
-            provider: Proveedor a través del que se procesa el pago.
-            amount: Importe.
-            currency: Moneda ISO 4217.
-            description: Descripción opcional.
-            metadata: Metadatos adicionales para la pasarela.
-
-        Returns:
-            La instancia de :class:`Transaction` persistida.
         """
         gateway = get_gateway(provider)
         try:
@@ -64,6 +59,7 @@ class TransactionService:
                 currency=currency,
                 description=description,
                 metadata=metadata or {},
+                payment_method_id=payment_method_id,
             )
         except Exception as exc:
             # IMPORTANTE: persistimos el intento fallido FUERA de cualquier

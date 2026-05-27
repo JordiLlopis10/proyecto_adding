@@ -77,8 +77,8 @@ class OrderService:
         api_key = provider.api_key or settings.STRIPE_API_KEY
 
         # URLs de retorno: si el llamador no las proporciona se usan
-        # valores de fallback configurables desde settings.
-        base_url = getattr(settings, 'SITE_BASE_URL', 'http://localhost:8000')
+        # los valores configurados en settings.SITE_BASE_URL.
+        base_url = settings.SITE_BASE_URL
         success_url = success_url or f'{base_url}/orders/success/?session_id={{CHECKOUT_SESSION_ID}}'
         cancel_url = cancel_url or f'{base_url}/orders/cancel/'
 

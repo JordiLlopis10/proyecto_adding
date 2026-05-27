@@ -121,6 +121,10 @@ REST_FRAMEWORK = {
 STRIPE_API_KEY = config('STRIPE_API_KEY', default='')
 STRIPE_WEBHOOK_SECRET = config('STRIPE_WEBHOOK_SECRET', default='')
 
+# URL base del backend, usada para construir success_url/cancel_url por defecto
+# en Stripe Checkout. En producción debe apuntar al dominio real (https://...).
+SITE_BASE_URL = config('SITE_BASE_URL', default='http://localhost:8000')
+
 # Configuración de logging básico (útil en defensa para mostrar trazas)
 LOGGING = {
     'version': 1,

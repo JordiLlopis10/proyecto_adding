@@ -45,8 +45,12 @@ class Provider(models.Model):
     )
     api_key = models.CharField(
         max_length=255,
+        blank=True,
         verbose_name='Clave de API',
-        help_text='Clave de API proporcionada por el proveedor.',
+        help_text=(
+            'Clave de API proporcionada por el proveedor. '
+            'Si se deja vacía, se usará la del entorno (STRIPE_API_KEY).'
+        ),
     )
     environment = models.CharField(
         max_length=20,
