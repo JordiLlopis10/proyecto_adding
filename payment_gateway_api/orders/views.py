@@ -95,3 +95,35 @@ class OrderStatusView(RetrieveAPIView):
     queryset = Order.objects.select_related('provider').all()
     serializer_class = OrderStatusSerializer
     # El endpoint es de solo lectura; no requiere permisos de escritura.
+
+
+from rest_framework.permissions import AllowAny
+
+class OrderSuccessView(APIView):
+    """Página de retorno tras un pago exitoso en Stripe Checkout."""
+    permission_classes = [AllowAny]   # Stripe redirige sin token
+
+    def get(self, request):
+        session_id = request.query_params.get('session_id', '')
+        order = Order.objects.filter(stripe_session_id=session_id).first()
+        if not order:
+            return Response(
+                {'detail': 'Pedido no encontrado para ese session_id.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response({
+            'message': '¡Pago completado correctamente!',
+            'order_id': order.id,
+            'reference': str(order.reference),
+            'status': order.status,
+            'amount': str(order.amount),
+            'currency': order.currency,
+        })
+
+
+class OrderCancelView(APIView):
+    """Página de retorno si el usuario cancela el pago."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        return Response({'message': 'Pago cancelado por el usuario.'})

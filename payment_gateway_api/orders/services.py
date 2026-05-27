@@ -79,9 +79,8 @@ class OrderService:
         # URLs de retorno: si el llamador no las proporciona se usan
         # los valores configurados en settings.SITE_BASE_URL.
         base_url = settings.SITE_BASE_URL
-        success_url = success_url or f'{base_url}/orders/success/?session_id={{CHECKOUT_SESSION_ID}}'
-        cancel_url = cancel_url or f'{base_url}/orders/cancel/'
-
+        success_url = success_url or f'{base_url}/api/v1/orders/success/?session_id={{CHECKOUT_SESSION_ID}}'
+        cancel_url = cancel_url or f'{base_url}/api/v1/orders/cancel/'
         # Creamos el pedido en BD primero (estado pending).
         order = Order.objects.create(
             provider=provider,
